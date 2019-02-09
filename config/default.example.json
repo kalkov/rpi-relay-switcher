@@ -1,0 +1,6 @@
+{
+  "mqtt_url": "mqtt://localhost:1883",
+  "username": "john",
+  "password": "password123",
+  "device": "rpi1"
+}
