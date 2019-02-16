@@ -15,14 +15,15 @@ const username = config.get('username')
 const password = config.get('password')
 const mqttUrl = config.get('mqtt_url')
 const device = config.get('device')
+const publishInterval = config.get('publish_interval')
+const defaultRelaysStates = config.get('relays.default_states')
+
 const clientId = `${username}/${device}`
 
 const deviceTopic = `devices/${device}`
 const eventTopic = `${deviceTopic}/event`
 const commandTopic = `${deviceTopic}/command`
 const measurementsTopic = `${deviceTopic}/measurements`
-
-const publishInterval = 60000
 
 const options = { clientId: clientId, username: username, password: password }
 const client = mqtt.connect(mqttUrl, options)
@@ -63,9 +64,9 @@ client.subscribe(commandTopic)
 
 const setDefaultStates = () => {
   connectedLed.writeSync(0)
-  relays[0].writeSync(1)
-  relays[1].writeSync(1)
-  relays[2].writeSync(0)
+  relays[0].writeSync(defaultRelaysStates[0])
+  relays[1].writeSync(defaultRelaysStates[1])
+  relays[2].writeSync(defaultRelaysStates[2])
 }
 
 const executeCommand = (command) => {

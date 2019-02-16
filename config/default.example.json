@@ -2,5 +2,9 @@
   "mqtt_url": "mqtt://localhost:1883",
   "username": "john",
   "password": "password123",
-  "device": "rpi1"
+  "device": "rpi1",
+  "publish_interval": 30000,
+  "relays": {
+    "default_states": {"0" : 0, "1" : 0, "2" : 1}	  
+   } 
 }
