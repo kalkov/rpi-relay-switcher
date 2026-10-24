@@ -1,0 +1,68 @@
+name: Trivy security scan
+description: Scan source or a container image and retain a JSON report.
+inputs:
+  image:
+    description: Container reference to scan; empty scans the repository.
+    default: ''
+  report-name:
+    description: Unique artifact suffix within this job.
+    default: source
+runs:
+  using: composite
+  steps:
+    - name: Install checksum-verified Trivy
+      shell: bash
+      run: |
+        set -euo pipefail
+        install_dir="$RUNNER_TEMP/trivy-bin"
+        mkdir -p "$install_dir"
+        archive=$(mktemp)
+        trap 'rm -f "$archive"' EXIT
+        curl -fsSL --retry 3 https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.tar.gz -o "$archive"
+        echo "c7cbe3137fb8a48a17574bede3dd6beb16742d1e9772929940fc90082c39d9c0  $archive" | sha256sum -c -
+        tar -xzf "$archive" -C "$install_dir" trivy
+        echo "$install_dir" >> "$GITHUB_PATH"
+    - name: Scan and enforce high/critical findings
+      shell: bash
+      env:
+        SCAN_IMAGE: ${{ inputs.image }}
+        REPORT_NAME: ${{ inputs.report-name }}
+      run: |
+        set -euo pipefail
+        report_dir="$RUNNER_TEMP/trivy-reports/$REPORT_NAME"
+        mkdir -p "$report_dir"
+        report="$report_dir/results.json"
+        if [[ -n "$SCAN_IMAGE" ]]; then
+          trivy image --timeout 15m --scanners vuln --format json --exit-code 0 --output "$report" "$SCAN_IMAGE"
+        else
+          trivy fs --timeout 15m --scanners vuln,misconfig --skip-dirs .git --format json --exit-code 0 --output "$report" .
+        fi
+        python3 - "$report" <<'PYTHON'
+        import json, os, sys
+        from pathlib import Path
+        data = json.loads(Path(sys.argv[1]).read_text())
+        results = data.get("Results", [])
+        vulnerabilities = sum(len(r.get("Vulnerabilities") or []) for r in results)
+        misconfigurations = sum(len(r.get("Misconfigurations") or []) for r in results)
+        summary = f"Trivy: {len(results)} targets; {vulnerabilities} vulnerability findings; {misconfigurations} configuration findings (all severities)."
+        print(summary)
+        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as stream:
+            stream.write(summary + "\n")
+            if not results:
+                stream.write("No supported targets were detected; dependency coverage is unverified.\n")
+        if not any(r.get("Class") in ("lang-pkgs", "os-pkgs") for r in results):
+            print("::warning::No supported dependency targets were detected; vulnerability coverage is unverified.")
+            if os.environ["SCAN_IMAGE"]:
+                sys.exit("Container scan detected no supported package targets.")
+        if not results:
+            print("::warning::No supported targets were detected; dependency coverage is unverified.")
+        PYTHON
+        trivy convert --format table --severity HIGH,CRITICAL --exit-code 1 "$report"
+    - name: Upload scan evidence
+      if: ${{ always() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      with:
+        name: trivy-${{ github.job }}-${{ inputs.report-name }}
+        path: ${{ runner.temp }}/trivy-reports/${{ inputs.report-name }}/results.json
+        if-no-files-found: warn
+        retention-days: 7
